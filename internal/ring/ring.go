@@ -74,11 +74,18 @@ func (r *Ring) Rebuild(nodes []*model.Node) {
 	r.vnodes = built
 }
 
-// RemoveNode drops a node from the ring without full rebuild.
+// RemoveNode drops a node from the ring without a full rebuild. Its virtual
+// nodes are compacted out so Pick and Candidates stop handing out the evicted
+// node's id immediately, not only after the next Rebuild.
 func (r *Ring) RemoveNode(nodeID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.weights, nodeID)
-	// BUG(01b): the removed node's virtual nodes are left on the ring, so the
-	// ring keeps handing out the evicted node until a full rebuild happens.
+	kept := make([]vnode, 0, len(r.vnodes))
+	for _, v := range r.vnodes {
+		if v.nodeID != nodeID {
+			kept = append(kept, v)
+		}
+	}
+	r.vnodes = kept
 }

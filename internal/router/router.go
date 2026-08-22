@@ -50,18 +50,24 @@ func (rt *Router) Route(key string) (*model.Node, error) {
 	return rt.pickHealthy(key)
 }
 
-// pickHealthy resolves the ring owner for key and falls back to the next
-// healthy candidate when the ring is stale (for example right after a node has
-// been evicted but before the ring is rebuilt).
+// pickHealthy resolves the ring owner for key and walks the ring clockwise to
+// the next node that still takes traffic when the primary owner is unavailable
+// (for example right after a node has been evicted but the ring still carries
+// its virtual nodes, or while a node is unhealthy/draining). This keeps the
+// first-hop and the retry path from getting pinned on a dead node while a
+// healthy neighbour sits idle.
 func (rt *Router) pickHealthy(key string) (*model.Node, error) {
-	nodeID, err := rt.ring.Pick(key)
+	ids, err := rt.ring.Candidates(key, rt.ring.NodeCount())
 	if err != nil {
 		return nil, err
 	}
-	// BUG(01): the stale ring view is used directly; after a node is evicted
-	// the router never falls back to a healthy candidate and keeps routing to
-	// the evicted node.
-	return rt.lookup(nodeID)
+	for _, id := range ids {
+		n, lerr := rt.lookup(id)
+		if lerr == nil && n.TakesTraffic() {
+			return n, nil
+		}
+	}
+	return nil, ErrNoHealthyNode
 }
 
 // Serve routes a key and runs the round tripper with bounded retries. The
