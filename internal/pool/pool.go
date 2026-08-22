@@ -93,18 +93,19 @@ func (m *PoolManager) Acquire(ctx context.Context, node *model.Node) (*model.Con
 	return m.poolFor(node.ID).acquire(ctx, node)
 }
 
-// Release returns a connection to the pool of the node that served the request.
+// Release returns a connection to the pool of the node that owns it. A
+// connection is physically bound to the upstream it was dialed against
+// (conn.NodeID), so it must always go back to that node's pool: returning it to
+// any other node's pool would let the next caller borrow a connection that
+// talks to the wrong upstream (e.g. a retry that succeeded on node B would
+// otherwise pollute node A's pool with B connections and starve B's). servedBy
+// is consulted only to decide whether the connection should be closed because
+// its serving node is draining; it never overrides the target pool.
 func (m *PoolManager) Release(conn *model.Conn, servedBy *model.Node) error {
 	if conn == nil {
 		return errors.New("pool: release of nil connection")
 	}
-	target := conn.NodeID
-	if servedBy != nil {
-		// BUG(02): the connection is returned to the node that was originally
-		// targeted, not the node that actually served the request.
-		target = servedBy.ID
-	}
-	return m.poolFor(target).release(conn, servedBy)
+	return m.poolFor(conn.NodeID).release(conn, servedBy)
 }
 
 // Drain marks a node draining, records it as draining in the manager, and

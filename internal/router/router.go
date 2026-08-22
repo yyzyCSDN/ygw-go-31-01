@@ -79,12 +79,10 @@ func (rt *Router) pickHealthy(key string) (*model.Node, error) {
 func (rt *Router) Serve(ctx context.Context, key string, rt2 RoundTripper) error {
 	attempted := 0
 	var node *model.Node
-	var first *model.Node
 	for {
 		var err error
 		if attempted == 0 {
 			node, err = rt.Route(key)
-			first = node
 		} else {
 			node, err = rt.fallbackNode(key, node.ID)
 		}
@@ -96,9 +94,12 @@ func (rt *Router) Serve(ctx context.Context, key string, rt2 RoundTripper) error
 			return err
 		}
 		serveErr := rt2(ctx, node, key)
-		// BUG(02b): the connection is returned to the originally targeted node
-		// instead of the node that actually served the request.
-		_ = rt.pools.Release(conn, first)
+		// Release the connection to the pool of the node that actually served
+		// this attempt (node), which is also the node the connection was dialed
+		// against and therefore owns it. Releasing against `first` on a retried
+		// request would misfile a B-node connection into A's pool, eventually
+		// starving B and polluting A.
+		_ = rt.pools.Release(conn, node)
 		if serveErr == nil {
 			if attempted == 0 {
 				// Sticky binding is recorded only for the original route so a
