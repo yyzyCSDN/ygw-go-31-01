@@ -18,8 +18,10 @@ func (p *NodePool) release(conn *model.Conn, servedBy *model.Node) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// BUG(04b): in-use accounting is never decremented on release, so leaked
-	// half-open probes make the pool look permanently exhausted.
+	// Every connection handed out by acquire increments inUse, so every
+	// release must decrement it; otherwise the counter only ever climbs and
+	// the pool reports itself permanently exhausted once it reaches maxTotal.
+	p.inUse--
 
 	if p.draining || (servedBy != nil && servedBy.State() == model.Draining) {
 		conn.SetState(model.ConnDraining)

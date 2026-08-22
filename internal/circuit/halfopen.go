@@ -25,8 +25,15 @@ func (b *Breaker) HalfOpenTrial(ctx context.Context, node *model.Node, pool Acqu
 	if b.State() != HalfOpen {
 		return ErrNoTrial
 	}
-	// BUG(04): the half-open probe bypasses the connection pool and dials the
-	// upstream directly; the connection is never returned, leaking one
-	// connection per half-open trial.
-	return rt(nil)
+	// The trial must borrow from the connection pool like any other request
+	// and return the connection when done; dialing upstream directly and
+	// dropping the connection would leak one connection per probe until the
+	// pool is exhausted and normal traffic is starved.
+	conn, err := pool.Acquire(ctx, node)
+	if err != nil {
+		return err
+	}
+	trialErr := rt(conn.Raw)
+	_ = pool.Release(conn, node)
+	return trialErr
 }
