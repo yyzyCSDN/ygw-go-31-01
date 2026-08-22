@@ -96,9 +96,14 @@ func (rt *Router) Serve(ctx context.Context, key string, rt2 RoundTripper) error
 		serveErr := rt2(ctx, node, key)
 		_ = rt.pools.Release(conn, node)
 		if serveErr == nil {
-			// BUG(05): every successful attempt rewrites the sticky binding,
-			// so one retry can pin a key to a fallback node permanently.
-			rt.sessions.Bind(key, node.ID)
+			// Only the preferred (first-attempt) node may own the sticky
+			// binding. A retry that succeeds on a fallback node served only
+			// this one failed request; pinning the key to it would starve the
+			// ring owner and skew the traffic distribution, so the binding is
+			// left untouched and the next request re-resolves via the ring.
+			if attempted == 0 {
+				rt.sessions.Bind(key, node.ID)
+			}
 			return nil
 		}
 		// The preferred node failed; drop a stale binding to it so the next
