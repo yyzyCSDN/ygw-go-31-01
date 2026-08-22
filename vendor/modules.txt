@@ -1,0 +1,5 @@
+# github.com/spaolacci/murmur3 v1.1.0
+## explicit
+github.com/spaolacci/murmur3
+# golang.org/x/net v0.33.0
+## explicit; go 1.18
